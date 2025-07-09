@@ -35,10 +35,10 @@ final_model_path = os.path.join(checkpoint_dir, "final_model.zip")
 best_reward = -np.inf
 previous_model = None
 
-resume_from_best = False #==============================================================================
+resume_from_best = True #============================================================================== set to true if you want to reload a previously trained model
 if resume_from_best:
-    print(f"  Found best model checkpoint at {best_model_path}")
-    checkpoint_path = best_model_path
+    print(f"  Found final model checkpoint at {final_model_path}")
+    checkpoint_path = final_model_path
 else:
     print("  Starting training from scratch.")
     checkpoint_path = None
@@ -68,24 +68,24 @@ for stage in curriculum_stages:
 
 
     new_logger = configure(log_dir, ["stdout", "csv", "tensorboard"])
-
+    num_steps=2048
     model = RecurrentPPO(
         "MlpLstmPolicy",
         env,
-        n_steps=28672, # 28672
-        batch_size=4092, # 4092 
+        n_steps=num_steps, # 1024 28672
+        batch_size=512, # 256 4092 
         gae_lambda=0.99, #ok
         gamma=0.9999,  #ok
         n_epochs=5, #10?
-        ent_coef=0.003, #intoduce entropy  schedulinbg?
-        learning_rate=2.5e-4,
-        clip_range=0.2,
+        ent_coef=0.003, #intoduce entropy  schedulinbg? 0.003 (0.015 super run)
+        learning_rate=1.0e-4, 
+        clip_range=0.2,  #0.2
         verbose=1,
         tensorboard_log=log_dir,
         device="cpu",  # or "cuda"
         policy_kwargs={
-            "log_std_init": -1.5,
-            "lstm_hidden_size": 64
+            "log_std_init": 0.0, #-1,5
+            "lstm_hidden_size": 128
         }
     )
     eval_callback = EvalCallback(
@@ -107,7 +107,7 @@ for stage in curriculum_stages:
         print(" Loading weights from previous stage")
         model.set_parameters(previous_model)
 
-    total_steps = training_iters * 28672
+    total_steps = training_iters * num_steps
     print(f" Training for {total_steps:,} timesteps")
 
     model.learn(
@@ -121,20 +121,27 @@ for stage in curriculum_stages:
     previous_model = model.get_parameters()
     model.save(final_model_path)
     print(f" Model saved to {final_model_path}")
-
+    
 
     lstm_state = None
     done = False
     total_reward = 0
-
+    obs=eval_env.reset()
     
     while not done: #sort of useless code atm, remmeber to remove 
         action, lstm_state = model.predict(obs, state=lstm_state, deterministic=True)
-        obs, reward, done, _, info = eval_env.step(action)
+        obs, reward, done, info = eval_env.step(action)
         total_reward += float(reward)
 
     print(f" Final evaluation reward (stage {stage_index + 1}): {total_reward:.2f}")
-    print(f"   Total Δv used: {info.get('total_dv_used_kms', -1):.3f} km/s")
-    print(f"   Final distance: {info.get('final_distance_to_saturn_km', -1):.3f} km")
+   
+    #total_delta_v = info.get("total_dv_used_kms", -1)
+    #distance_to_saturn = info.get("final_distance_to_saturn_km", -1)
 
-print(f"\n Final model saved to {final_model_path}")
+    print("\n Mission Summary:")
+    total_delta_v = info[0].get("total_dv_used_kms", -1)
+    final_distance = info[0].get("final_distance_to_saturn_km", -1)
+
+    print(f"Total Δv Used: {total_delta_v:.3f} km/s")
+    print(f"Final Distance to target: {final_distance:.3f} km")
+

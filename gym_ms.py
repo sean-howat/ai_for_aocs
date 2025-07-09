@@ -8,7 +8,7 @@ from poliastro.ephem import Ephem
 from poliastro.twobody import Orbit
 
 from numpy.linalg import norm
-from numpy import cross, cos, sin
+# from numpy import cross, cos, sin
 
 class Gravity_cleanup(gym.Env):
     def __init__(self, env_config=None):
@@ -53,9 +53,9 @@ class Gravity_cleanup(gym.Env):
         self.total_dv_used = 0.0
         self.episode_over = False
 
-        self.observation_space = spaces.Box(low=-1e3, high=1e3, shape=(13,), dtype=np.float32)
-        self.action_space = spaces.Box(low=-1, high=1, shape=(3,), dtype=np.float32)
-
+        self.observation_space = spaces.Box(low=-1e3, high=1e3, shape=(13,), dtype=np.float32) #
+        self.action_space = spaces.Box(low=-1, high=1, shape=(3,), dtype=np.float32) #normalized action space, scaled later to dv max 
+ 
         default_weights = { #backup weights
             "alignment": 1.0,
             "approach": 1.0,
@@ -139,12 +139,13 @@ class Gravity_cleanup(gym.Env):
 
         except Exception as e:
             print("Exception during _get_obs (normalized):", e)
-            return np.zeros(10, dtype=np.float32)
+            return np.zeros(13, dtype=np.float32)
 
     def step(self, action):
         if self.episode_over:
             truncated = self.elapsed_time >= self.max_duration
             return self._get_obs(), 0.0, True, truncated, {}
+        self.target = self._get_orbit(Mars, self.epoch)
         #print(action)
         delta_v= action*self.max_dv *u.m/u.s
         #print(delta_v)
@@ -177,18 +178,31 @@ class Gravity_cleanup(gym.Env):
         elapsed_s = self.elapsed_time.to(u.s).value
 
         current_orbit = Orbit.from_vectors(Sun, self.state_r, self.state_v, epoch=self.epoch)
-        target_energy = abs(self.target.energy.to_value(u.km**2 / u.s**2))
+        #target_energy = abs(self.target.energy.to_value(u.km**2 / u.s**2))
 
-        energy_error = abs(current_orbit.energy - self.target.energy).to(u.km**2 / u.s**2).value
-        relative_error = energy_error / target_energy
-        energy_reward = (1.0 / (1.0 + relative_error))
+        #energy_error = abs(current_orbit.energy - self.target.energy).to(u.km**2 / u.s**2).value
+        #relative_error = energy_error / target_energy
+        ##k=0.5
+        #energy_reward = float(np.exp(-k * relative_error))
+        #energy_reward =   (1.0 / (1.0 + relative_error))
+        
+        start_energy = self.start.energy.to(u.km**2 / u.s**2)
+        target_energy = self.target.energy.to(u.km**2 / u.s**2)
+        current_energy = current_orbit.energy.to(u.km**2 / u.s**2)
 
-        if relative_error < 0.2:
-            nu_sc = current_orbit.nu.to_value(u.rad)
-            nu_target = self.target.nu.to_value(u.rad)
-            angle_diff = np.arctan2(np.sin(nu_sc - nu_target), np.cos(nu_sc - nu_target))
-            angle_error = abs(angle_diff)
-            true_anomaly_reward = 1.0 / (1.0 + angle_error)
+        initial_gap = abs(start_energy - target_energy).value
+        current_gap = abs(current_energy - target_energy).value
+      
+        # 0 when at Earth energy, 1 when matching Mars energy
+        progress = 1.0 - current_gap / initial_gap
+        energy_reward = progress
+
+        # if relative_error < 0.2:
+        #     nu_sc = current_orbit.nu.to_value(u.rad)
+        #     nu_target = self.target.nu.to_value(u.rad)
+        #     angle_diff = np.arctan2(np.sin(nu_sc - nu_target), np.cos(nu_sc - nu_target))
+        #     angle_error = abs(angle_diff)
+        #     true_anomaly_reward = 1.0 / (1.0 + angle_error)
 
         distance_to_target = norm((self.state_r - self.target.r).to_value(u.km))
         distance_reward = (1 - (distance_to_target / self.MAX_POS.to_value(u.km))) * (elapsed_s / max_s)
@@ -242,6 +256,6 @@ class Gravity_cleanup(gym.Env):
         )
 
         truncated = self.elapsed_time >= self.max_duration
-        #reward = float(reward)
-        reward=np.array([reward])
+        reward = float(reward)
+        #reward=np.array([reward])
         return self._get_obs(), reward, done, truncated, info

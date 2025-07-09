@@ -6,7 +6,8 @@ import json
 import pandas as pd
 import webbrowser
 
-from stable_baselines3 import PPO
+#from stable_baselines3 import PPO
+from sb3_contrib import RecurrentPPO
 #from gym_cleanup import Gravity_cleanup
 
 from gym_ms import Gravity_cleanup
@@ -23,8 +24,12 @@ for k, v in final_env_config.get("reward_weights", {}).items():
     print(f"  {k}: {v}")
 
 # Load trained model 
-model_path = os.path.abspath("demo-ai-4-aocs-main/src/sb3_checkpoints/best_model.zip")
-model = PPO.load(model_path, device="cuda" if torch.cuda.is_available() else "cpu")
+#model_path = os.path.abspath("demo-ai-4-aocs-main/src/sb3_checkpoints/best_model.zip")
+model_path = os.path.abspath("demo-ai-4-aocs-main/src/sb3_checkpoints/final_model.zip")
+
+print(model_path)
+
+model = RecurrentPPO.load(model_path, device="cuda" if torch.cuda.is_available() else "cpu")
 
 #  Create env 
 env = Gravity_cleanup(final_env_config)
@@ -49,13 +54,16 @@ reward_logs = {
 }
 
 #  Run 1 episode
+obs, _ = env.reset()
+lstm_state = None
+
 for step in range(1000):
     trajectory.append(obs)
     jd_times.append(env.epoch.jd)
     dv = getattr(env, "last_dv", np.zeros(3))
     delta_vs.append(np.array(dv).flatten())
 
-    action, _ = model.predict(obs, deterministic=False)
+    action, _ = model.predict(obs,state=lstm_state, deterministic=True)
     obs, reward, done, truncated, info = env.step(action)
 
     # Log reward components
