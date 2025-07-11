@@ -24,8 +24,8 @@ for k, v in final_env_config.get("reward_weights", {}).items():
     print(f"  {k}: {v}")
 
 # Load trained model 
-#model_path = os.path.abspath("demo-ai-4-aocs-main/src/sb3_checkpoints/best_model.zip")
-model_path = os.path.abspath("demo-ai-4-aocs-main/src/sb3_checkpoints/final_model.zip")
+model_path = os.path.abspath("demo-ai-4-aocs-main/src/sb3_checkpoints/best_model.zip")
+#model_path = os.path.abspath("demo-ai-4-aocs-main/src/sb3_checkpoints/final_model.zip")
 
 print(model_path)
 
@@ -56,24 +56,24 @@ reward_logs = {
 #  Run 1 episode
 obs, _ = env.reset()
 lstm_state = None
-
-for step in range(1000):
+done =False
+while not done:
     trajectory.append(obs)
     jd_times.append(env.epoch.jd)
     dv = getattr(env, "last_dv", np.zeros(3))
     delta_vs.append(np.array(dv).flatten())
 
-    action, _ = model.predict(obs,state=lstm_state, deterministic=True)
+    action, lstm_state = model.predict(obs,state=lstm_state, deterministic=True) #set to false for non determensitc
     obs, reward, done, truncated, info = env.step(action)
 
     # Log reward components
     for key in reward_logs:
         reward_logs[key].append(info.get(key, 0))
 
-    if done or truncated:
+    if truncated:
         break
 
-#  Clean up delta-v vectors 
+#  
 cleaned_dvs = []
 for i, dv in enumerate(delta_vs):
     dv_array = np.asarray(dv, dtype=np.float32).flatten()
@@ -93,9 +93,11 @@ np.savez("trajectory_data_sb3.npz",
 
 print(" Trajectory and rewards saved")
 
-# === Plot weighted reward breakdown ===
+# Plot weighted reward  
 plt.figure(figsize=(12, 8))
 for key, values in reward_logs.items():
+    if key == "final_reward":
+        continue  # Skip final_reward from the plot
     weight = final_env_config["reward_weights"].get(key, 0.0)
     if weight != 0.0:
         weighted_values = [v * weight for v in values]
@@ -133,9 +135,13 @@ print("\n Weighted Reward Contribution Summary:")
 print(weighted_df.round(3).to_string())
 
 #   print out 
+total_weighted_reward = sum(weighted_summary["Total"].values())
 total_delta_v = info.get("total_dv_used_kms", -1)
 distance_to_saturn = info.get("final_distance_to_saturn_km", -1)
+closest_dist_km=info.get("closest_distance_km",-1)
 
 print("\n Mission Summary:")
+print(f"Total weighted reward: {total_weighted_reward:.3f}")
 print(f"Total Δv Used: {total_delta_v:.3f} km/s")
-print(f"Final Distance to target: {distance_to_saturn:.3f} km")
+print(f"Final Distance to target: {distance_to_saturn:.3e} km")
+print(f"Closest Distance to target: {closest_dist_km:.3e} km")

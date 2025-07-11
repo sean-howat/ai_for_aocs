@@ -34,9 +34,14 @@ final_model_path = os.path.join(checkpoint_dir, "final_model.zip")
 
 best_reward = -np.inf
 previous_model = None
+ 
+resume_from_best =  False #============================================================================== set to true if you want to reload a previously trained model
+resume_from_final= False
 
-resume_from_best = True #============================================================================== set to true if you want to reload a previously trained model
 if resume_from_best:
+    print(f"  Found best model checkpoint at {best_model_path}")
+    checkpoint_path = best_model_path
+elif resume_from_final:
     print(f"  Found final model checkpoint at {final_model_path}")
     checkpoint_path = final_model_path
 else:
@@ -72,27 +77,27 @@ for stage in curriculum_stages:
     model = RecurrentPPO(
         "MlpLstmPolicy",
         env,
-        n_steps=num_steps, # 1024 28672
-        batch_size=512, # 256 4092 
+        n_steps=num_steps, # 1024 2048 4096 8192 28672
+        batch_size=256, # 256 512 1024 4096 
         gae_lambda=0.99, #ok
         gamma=0.9999,  #ok
         n_epochs=5, #10?
-        ent_coef=0.003, #intoduce entropy  schedulinbg? 0.003 (0.015 super run)
-        learning_rate=1.0e-4, 
+        ent_coef=0.015, #intoduce entropy  schedulinbg?  (0.015-0.003)
+        learning_rate=2.5e-4, 
         clip_range=0.2,  #0.2
         verbose=1,
         tensorboard_log=log_dir,
         device="cpu",  # or "cuda"
         policy_kwargs={
             "log_std_init": 0.0, #-1,5
-            "lstm_hidden_size": 128
+            "lstm_hidden_size": 64 #64
         }
     )
     eval_callback = EvalCallback(
     eval_env,
-    best_model_save_path=checkpoint_dir,  # where to save the best model
+    best_model_save_path=checkpoint_dir,  # best model loc
     log_path=log_dir,
-    eval_freq=150000,                      # how often to evaluate
+    eval_freq=2048,                      # how often to evaluate
     deterministic=True,
     render=False,
     verbose=1
@@ -128,7 +133,7 @@ for stage in curriculum_stages:
     total_reward = 0
     obs=eval_env.reset()
     
-    while not done: #sort of useless code atm, remmeber to remove 
+    while not done: #final test, shoudld be similar to sb3_evaluate values
         action, lstm_state = model.predict(obs, state=lstm_state, deterministic=True)
         obs, reward, done, info = eval_env.step(action)
         total_reward += float(reward)
