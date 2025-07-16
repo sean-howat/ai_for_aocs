@@ -214,10 +214,22 @@ init_data.append(go.Scatter3d(
     name='Saturn Final'
 ))
 
+mars_final_r = np.array(planet_positions["MARS"][-1])  # shape: (3,)
+init_data.append(go.Scatter3d(
+    x=[mars_final_r[0]],
+    y=[mars_final_r[1]],
+    z=[mars_final_r[2]],
+    mode='markers+text',
+    text=["MARS Final"],
+    textposition='bottom center',
+    marker=dict(size=7, color='green', symbol='circle'),
+    name='Mars Final'
+))
+
 fig = go.Figure(
     data=init_data,
     layout=go.Layout(
-        title=" RL Gravity Assist with Δv Direction Flip Markers",
+        title=" RL trajectory",
         scene=dict(
             xaxis=dict(range=[-max_zoom, max_zoom], title='X (km)'),
             yaxis=dict(range=[-max_zoom, max_zoom], title='Y (km)'),

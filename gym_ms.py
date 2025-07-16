@@ -15,14 +15,14 @@ class Gravity_cleanup(gym.Env):
 
         if env_config is None:
             env_config = {}
-        self.max_total_dv = env_config.get("max_total_dv", 250000.0)  # m/s removed total dv from json, will add again later, for now use backup value
+        self.max_total_dv = env_config.get("max_total_dv", 100000.0)  # m/s removed total dv from json, will add again later, for now use backup value
 
         start_epoch = env_config.get("start_epoch", "2020-05-01") #collects start epoch from json file, otherwise uses backupdate given
         self.initial_epoch = Time(start_epoch, scale="tdb")
         self.epoch = self.initial_epoch
 
-        self.max_dv = 100.0  # m/s per action
-        self.step_duration = 1 * u.day 
+        self.max_dv = 200.0  # m/s per action (MAX)
+        self.step_duration = 3 * u.day 
 
         duration_days = env_config.get("max_duration", 804) #same here from json
         self.max_duration = duration_days * u.day
@@ -31,9 +31,10 @@ class Gravity_cleanup(gym.Env):
         self.planets = {}
         for name in self.planet_names + ["EARTH"]:
             body = eval(name.title())
-            epoch_offset = 0 # removed offset for final planet, might readd again to get final positon
-            self.planets[name] = self._get_orbit(body, self.epoch + epoch_offset)
+            #epoch_offset = 0 # removed offset for final planet, might readd again to get final positon
+            epoch_offset = self.max_duration if name == "MARS" else 0 * u.day # 
 
+            self.planets[name] = self._get_orbit(body, self.epoch + epoch_offset)
         self.target = self.planets["MARS"]
         self.start = self.planets["EARTH"]
 
@@ -53,7 +54,7 @@ class Gravity_cleanup(gym.Env):
         self.total_dv_used = 0.0
         self.episode_over = False
 
-        self.observation_space = spaces.Box(low=-1e3, high=1e3, shape=(13,), dtype=np.float32) #
+        self.observation_space = spaces.Box(low=-1e3, high=1e3, shape=(14,), dtype=np.float32) #
         self.action_space = spaces.Box(low=-1, high=1, shape=(3,), dtype=np.float32) #normalized action space, scaled later to dv max 
  
         default_weights = { #backup weights
@@ -78,7 +79,8 @@ class Gravity_cleanup(gym.Env):
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        start_offset = np.random.uniform(-10, 10) * u.day
+        self.closest_distance = float('inf')
+        start_offset = np.random.uniform(-30, 30) * u.day
         self.epoch = self.initial_epoch + start_offset
 
         self.elapsed_time = 0 * u.day
@@ -122,19 +124,22 @@ class Gravity_cleanup(gym.Env):
             rel_to_target = (self.target.r - self.state_r).to_value(u.km) / r_scale
             obs.extend(rel_to_target.tolist())
 
-            dist_to_target = norm(rel_to_target)
-            obs.append(dist_to_target)
-
+            rel_vel = (self.state_v - self.target.v.to(u.m / u.s)).to_value(u.m / u.s) / v_scale
+            obs.extend(rel_vel.tolist())
+            
             normalized_time=(self.elapsed_time / self.max_duration).to_value()
             obs.append(normalized_time)
-            current_orbit = Orbit.from_vectors(Sun, self.state_r, self.state_v, epoch=self.epoch)
-            mars_orbit = self.target
 
-            nu_sc = current_orbit.nu.to_value(u.rad)
-            nu_mars = mars_orbit.nu.to_value(u.rad)
+            dv_fraction = self.total_dv_used / float(self.max_total_dv)
+            obs.append(dv_fraction)
+            # current_orbit = Orbit.from_vectors(Sun, self.state_r, self.state_v, epoch=self.epoch)
+            # mars_orbit = self.target
 
-            obs.append(nu_sc)
-            obs.append(nu_mars)
+            # nu_sc = current_orbit.nu.to_value(u.rad)
+            # nu_mars = mars_orbit.nu.to_value(u.rad)
+
+            # obs.append(nu_sc)
+            # obs.append(nu_mars)
             return np.array(obs, dtype=np.float32)
 
         except Exception as e:
@@ -145,7 +150,9 @@ class Gravity_cleanup(gym.Env):
         if self.episode_over:
             truncated = self.elapsed_time >= self.max_duration
             return self._get_obs(), 0.0, True, truncated, {}
-        self.target = self._get_orbit(Mars, self.epoch)
+        #self.target = self._get_orbit(Mars, self.epoch)
+        #self.target = self._get_orbit(Mars, self.max_duration)
+
         #print(action)
         delta_v= action*self.max_dv *u.m/u.s
         #print(delta_v)
@@ -162,17 +169,6 @@ class Gravity_cleanup(gym.Env):
         self.epoch = propagated_orbit.epoch
         self.elapsed_time += self.step_duration
 
-        alignment_reward = 0.0
-        approach_reward_total = 0.0
-        flyby_reward = 0.0
-        dv_penalty = -norm(delta_v.to_value(u.m / u.s))*1e-3
-        closing_rate_reward = 0.0
-        energy_reward = 0.0
-        distance_penalty = 0.0
-        sun_penalty = 0.0
-        final_reward = 0.0
-        max_dv_exceeded_penalty = 0.0
-        true_anomaly_reward = 0.0
 
         max_s = self.max_duration.to(u.s).value
         elapsed_s = self.elapsed_time.to(u.s).value
@@ -192,30 +188,46 @@ class Gravity_cleanup(gym.Env):
 
         initial_gap = abs(start_energy - target_energy).value
         current_gap = abs(current_energy - target_energy).value
-      
-        # 0 when at Earth energy, 1 when matching Mars energy
-        progress = 1.0 - current_gap / initial_gap
-        energy_reward = progress
 
-        # if relative_error < 0.2:
-        #     nu_sc = current_orbit.nu.to_value(u.rad)
-        #     nu_target = self.target.nu.to_value(u.rad)
-        #     angle_diff = np.arctan2(np.sin(nu_sc - nu_target), np.cos(nu_sc - nu_target))
-        #     angle_error = abs(angle_diff)
-        #     true_anomaly_reward = 1.0 / (1.0 + angle_error)
+        progress = 1.0 - current_gap / initial_gap 
+
+    
 
         distance_to_target = norm((self.state_r - self.target.r).to_value(u.km))
-        distance_reward = (1 - (distance_to_target / self.MAX_POS.to_value(u.km))) * (elapsed_s / max_s)
+        self.closest_distance = min(self.closest_distance, distance_to_target) #for info 
+        #distance_reward = (1 - (distance_to_target / self.MAX_POS.to_value(u.km))) * (elapsed_s / max_s)**2
+        start_distance = norm((self.start.r - self.target.r).to_value(u.km))
+        current_distance = norm((self.state_r - self.target.r).to_value(u.km))
+        distance_progress = 1.0 - (current_distance / start_distance)
+
+
+
+
+
+        alignment_reward = 0.0
+        approach_reward_total = 0.0
+        flyby_reward = 0.0
+        dv_penalty = -norm(delta_v.to_value(u.m / u.s))*1e-3
+        closing_rate_reward = 0.0
+        energy_reward = progress  #*(elapsed_s / max_s)**2 
+        distance_reward = np.clip(distance_progress, 0.0, 1.0) #*(elapsed_s / max_s)**2 
+        sun_penalty = 0.0
+        final_reward = 0.0
+        max_dv_exceeded_penalty = 0.0
+        true_anomaly_reward = 0.0
+
 
         dist_from_sun = norm(self.state_r.to_value(u.km))
         au_km = (1 * u.AU).to_value(u.km)
         if dist_from_sun < (0.5 * au_km):
             sun_penalty -= 1000
 
-        done = distance_to_target < 1e5 or self.elapsed_time >= self.max_duration
+        done = distance_to_target < 1e5 or self.elapsed_time >= self.max_duration #not called during training idk?
         if done:
-            final_reward += 1000000 / (1 + distance_to_target / 1e6)
-
+            final_reward +=  np.clip(distance_progress, 0.0, 1.0)
+          
+            
+       
         if self.total_dv_used > self.max_total_dv:
             done = True
             max_dv_exceeded_penalty = -5
@@ -234,6 +246,10 @@ class Gravity_cleanup(gym.Env):
             self.reward_weights["true_anomaly"] * true_anomaly_reward
         )
 
+        # if done:
+        #     print(f"[DEBUG] Final reward added: {final_reward}, total: {reward}")
+        #     print(f"Episode ended: distance = {distance_to_target:.2f} km, distance progress = {distance_progress:.3f}")
+            
         self.episode_over = done
         # if done:
         #     print(f"TRAINING END: total Δv = {self.total_dv_used / 1000:.3f} km/s")
@@ -252,7 +268,8 @@ class Gravity_cleanup(gym.Env):
             max_dv_exceeded=max_dv_exceeded_penalty,
             total_dv_used_kms=self.total_dv_used / 1000.0,  # for backward compatibility
             final_distance_to_saturn_km=distance_to_target,
-            true_anomaly=true_anomaly_reward
+            true_anomaly=true_anomaly_reward,
+            closest_distance_km=self.closest_distance
         )
 
         truncated = self.elapsed_time >= self.max_duration
