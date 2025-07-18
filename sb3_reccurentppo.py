@@ -35,8 +35,8 @@ final_model_path = os.path.join(checkpoint_dir, "final_model.zip")
 best_reward = -np.inf
 previous_model = None
  
-resume_from_best =  False #============================================================================== set to true if you want to reload a previously trained model
-resume_from_final= False
+resume_from_best =  False #========= ===================================================================== set to true if you want to reload a previously trained model
+resume_from_final= True
 
 if resume_from_best:
     print(f"  Found best model checkpoint at {best_model_path}")
@@ -54,50 +54,52 @@ for stage in curriculum_stages:
     env_config = stage["env_config"]
     training_iters = stage["training_iters"]
 
-
-    print(f"\n Stage {stage_index + 1} with reward weights: {env_config['reward_weights']}")
-
     if training_iters == 0:
         print(f" Skipping Stage {stage_index + 1} (0 training iterations)")
         continue
 
+    print(f"\n Stage {stage_index + 1} with reward weights: {env_config['reward_weights']}")
+   
     def make_env():
         return Monitor(Gravity_cleanup(env_config))
 
     env = DummyVecEnv([make_env])
     env = VecMonitor(env)
 
-    # ===  separate evaluation environment ===
-    eval_env = DummyVecEnv([lambda: Monitor(Gravity_cleanup(env_config))])
+    # separate evaluation environment 
+    eval_env = DummyVecEnv([lambda: Gravity_cleanup(env_config)])
     eval_env = VecMonitor(eval_env)
 
 
+    
     new_logger = configure(log_dir, ["stdout", "csv", "tensorboard"])
-    num_steps=2048
+
+    num_steps=8192 # 1024 2048 4096 8192 16384 32768
+    entropy_coeff = stage.get("agent_config", {}).get("entropy_coeff", 0.0)
     model = RecurrentPPO(
         "MlpLstmPolicy",
         env,
-        n_steps=num_steps, # 1024 2048 4096 8192 28672
-        batch_size=256, # 256 512 1024 4096 
+        n_steps=num_steps, 
+        batch_size=2048, # 256 512 1024 2048 4096 8192
         gae_lambda=0.99, #ok
         gamma=0.9999,  #ok
         n_epochs=5, #10?
-        ent_coef=0.015, #intoduce entropy  schedulinbg?  (0.015-0.003)
+        ent_coef=entropy_coeff, #
         learning_rate=2.5e-4, 
         clip_range=0.2,  #0.2
         verbose=1,
         tensorboard_log=log_dir,
         device="cpu",  # or "cuda"
         policy_kwargs={
-            "log_std_init": 0.0, #-1,5
-            "lstm_hidden_size": 64 #64
+            "log_std_init": 0.0, #0,0 
+            "lstm_hidden_size": 128 #64 128 256
         }
     )
     eval_callback = EvalCallback(
     eval_env,
     best_model_save_path=checkpoint_dir,  # best model loc
     log_path=log_dir,
-    eval_freq=2048,                      # how often to evaluate
+    eval_freq=160000,                      # 16384 how often to evaluate
     deterministic=True,
     render=False,
     verbose=1
@@ -148,5 +150,5 @@ for stage in curriculum_stages:
     final_distance = info[0].get("final_distance_to_saturn_km", -1)
 
     print(f"Total Δv Used: {total_delta_v:.3f} km/s")
-    print(f"Final Distance to target: {final_distance:.3f} km")
+    print(f"Final Distance to target: {final_distance:.3e} km")
 

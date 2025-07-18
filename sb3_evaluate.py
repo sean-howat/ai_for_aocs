@@ -32,8 +32,6 @@ print(model_path)
 model = RecurrentPPO.load(model_path, device="cuda" if torch.cuda.is_available() else "cpu")
 
 #  Create env 
-env = Gravity_cleanup(final_env_config)
-obs, _ = env.reset()
 
 #  Logging 
 trajectory = []
@@ -54,7 +52,9 @@ reward_logs = {
 }
 
 #  Run 1 episode
-obs, _ = env.reset()
+env = Gravity_cleanup(final_env_config)
+obs, _ = env.reset(seed=0)
+print("Start epoch:", env.epoch.iso)
 lstm_state = None
 done =False
 while not done:
@@ -113,12 +113,6 @@ plt.savefig("reward_breakdown_sb3.png")
 webbrowser.open('file://' + os.path.realpath("reward_breakdown_sb3.png"))
 
 # === Summary ===
-print("\n Verifying reward weight mapping:")
-for key in reward_logs:
-    if key not in final_env_config["reward_weights"]:
-        print(f" No weight defined for '{key}' — treated as 0.0")
-    else:
-        print(f" Using weight {final_env_config['reward_weights'][key]} for '{key}'")
 
 weighted_summary = {
     "Total": {

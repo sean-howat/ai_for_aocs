@@ -12,7 +12,6 @@ from numpy.linalg import norm
 
 class Gravity_cleanup(gym.Env):
     def __init__(self, env_config=None):
-
         if env_config is None:
             env_config = {}
         self.max_total_dv = env_config.get("max_total_dv", 100000.0)  # m/s removed total dv from json, will add again later, for now use backup value
@@ -21,10 +20,13 @@ class Gravity_cleanup(gym.Env):
         self.initial_epoch = Time(start_epoch, scale="tdb")
         self.epoch = self.initial_epoch
 
-        self.max_dv = 200.0  # m/s per action (MAX)
-        self.step_duration = 3 * u.day 
+        self.max_dv =120.0  # m/s per action (MAX), must be adjusted depending on step duration, lower step -> higher max
+        self.step_duration = 1 * u.day # sensittive to lowering of step duration -> more steps, less dense distance reward -> more training time
 
-        duration_days = env_config.get("max_duration", 804) #same here from json
+        #BUG TOFIX DAYS NOT BEING RIGHT?
+        duration_days = env_config.get("max_duration") #same here from json 
+
+
         self.max_duration = duration_days * u.day
 
         self.planet_names = ["VENUS", "MARS", "JUPITER", "SATURN"]
@@ -80,7 +82,8 @@ class Gravity_cleanup(gym.Env):
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self.closest_distance = float('inf')
-        start_offset = np.random.uniform(-30, 30) * u.day
+        rng=np.random.default_rng(seed)
+        start_offset = rng.uniform(-0, 0) * u.day
         self.epoch = self.initial_epoch + start_offset
 
         self.elapsed_time = 0 * u.day
@@ -170,10 +173,10 @@ class Gravity_cleanup(gym.Env):
         self.elapsed_time += self.step_duration
 
 
-        max_s = self.max_duration.to(u.s).value
-        elapsed_s = self.elapsed_time.to(u.s).value
+        # max_s = self.max_duration.to(u.s).value
+        # elapsed_s = self.elapsed_time.to(u.s).value
 
-        current_orbit = Orbit.from_vectors(Sun, self.state_r, self.state_v, epoch=self.epoch)
+        # current_orbit = Orbit.from_vectors(Sun, self.state_r, self.state_v, epoch=self.epoch)
         #target_energy = abs(self.target.energy.to_value(u.km**2 / u.s**2))
 
         #energy_error = abs(current_orbit.energy - self.target.energy).to(u.km**2 / u.s**2).value
@@ -182,68 +185,68 @@ class Gravity_cleanup(gym.Env):
         #energy_reward = float(np.exp(-k * relative_error))
         #energy_reward =   (1.0 / (1.0 + relative_error))
         
-        start_energy = self.start.energy.to(u.km**2 / u.s**2)
-        target_energy = self.target.energy.to(u.km**2 / u.s**2)
-        current_energy = current_orbit.energy.to(u.km**2 / u.s**2)
+        # start_energy = self.start.energy.to(u.km**2 / u.s**2)
+        # target_energy = self.target.energy.to(u.km**2 / u.s**2)
+        # current_energy = current_orbit.energy.to(u.km**2 / u.s**2)
 
-        initial_gap = abs(start_energy - target_energy).value
-        current_gap = abs(current_energy - target_energy).value
+        # initial_gap = abs(start_energy - target_energy).value
+        # current_gap = abs(current_energy - target_energy).value
 
-        progress = 1.0 - current_gap / initial_gap 
+        # progress = 1.0 - current_gap / initial_gap 
 
     
 
         distance_to_target = norm((self.state_r - self.target.r).to_value(u.km))
         self.closest_distance = min(self.closest_distance, distance_to_target) #for info 
+
         #distance_reward = (1 - (distance_to_target / self.MAX_POS.to_value(u.km))) * (elapsed_s / max_s)**2
-        start_distance = norm((self.start.r - self.target.r).to_value(u.km))
-        current_distance = norm((self.state_r - self.target.r).to_value(u.km))
-        distance_progress = 1.0 - (current_distance / start_distance)
+        #start_distance = norm((self.start.r - self.target.r).to_value(u.km))
+        #current_distance = norm((self.state_r - self.target.r).to_value(u.km))
+        #distance_progress = 1.0 - (current_distance / start_distance)
+     
 
 
 
 
-
-        alignment_reward = 0.0
-        approach_reward_total = 0.0
-        flyby_reward = 0.0
         dv_penalty = -norm(delta_v.to_value(u.m / u.s))*1e-3
-        closing_rate_reward = 0.0
-        energy_reward = progress  #*(elapsed_s / max_s)**2 
-        distance_reward = np.clip(distance_progress, 0.0, 1.0) #*(elapsed_s / max_s)**2 
+        #distance_reward = np.clip(distance_progress, 0.0, 1.0) #*(elapsed_s / max_s)**2 
         sun_penalty = 0.0
         final_reward = 0.0
         max_dv_exceeded_penalty = 0.0
-        true_anomaly_reward = 0.0
 
 
-        dist_from_sun = norm(self.state_r.to_value(u.km))
-        au_km = (1 * u.AU).to_value(u.km)
-        if dist_from_sun < (0.5 * au_km):
-            sun_penalty -= 1000
-
-        done = distance_to_target < 1e5 or self.elapsed_time >= self.max_duration #not called during training idk?
-        if done:
-            final_reward +=  np.clip(distance_progress, 0.0, 1.0)
-          
-            
-       
+        # dist_from_sun = norm(self.state_r.to_value(u.km))
+        # au_km = (1 * u.AU).to_value(u.km)
+        # if dist_from_sun < (0.5 * au_km):
+        #     sun_penalty -= 1000
+               
         if self.total_dv_used > self.max_total_dv:
             done = True
             max_dv_exceeded_penalty = -5
+            print("delta_v max exceeded")
+
+
+        done = distance_to_target < 1e5 or self.elapsed_time >= self.max_duration #not called during training idk?
+        if done:
+            distance_calc= (distance_to_target/norm(self.target.r).to_value(u.km))
+            final_reward -=  np.clip(distance_calc, 0.0, 1.0)
+
+            if distance_to_target < 1e5:
+                final_reward+=1
+            
+            print(final_reward)
+
+            #success_distance=1e6
+            #final_reward = 2*success_distance / \
+             #      (distance_to_target + success_distance)
+          
+            
 
         reward = (
-            self.reward_weights["alignment"] * alignment_reward +
-            self.reward_weights["approach"] * approach_reward_total +
-            self.reward_weights["flyby"] * flyby_reward +
             self.reward_weights["dv_penalty"] * dv_penalty +
-            self.reward_weights["closing_rate"] * closing_rate_reward +
-            self.reward_weights["energy"] * energy_reward +
-            self.reward_weights["distance"] * distance_reward +
             self.reward_weights["sun_penalty"] * sun_penalty +
             self.reward_weights["final_reward"] * final_reward +
-            self.reward_weights["max_dv_exceeded"] * max_dv_exceeded_penalty +
-            self.reward_weights["true_anomaly"] * true_anomaly_reward
+            self.reward_weights["max_dv_exceeded"] * max_dv_exceeded_penalty 
         )
 
         # if done:
@@ -256,19 +259,12 @@ class Gravity_cleanup(gym.Env):
 
 
         info = dict(
-            alignment=alignment_reward,
-            approach=approach_reward_total,
-            flyby=flyby_reward,
             dv_penalty=dv_penalty,
-            closing_rate=closing_rate_reward,
-            energy=energy_reward,
-            distance=distance_reward,
             sun_penalty=sun_penalty,
             final_reward=final_reward,
             max_dv_exceeded=max_dv_exceeded_penalty,
             total_dv_used_kms=self.total_dv_used / 1000.0,  # for backward compatibility
             final_distance_to_saturn_km=distance_to_target,
-            true_anomaly=true_anomaly_reward,
             closest_distance_km=self.closest_distance
         )
 
