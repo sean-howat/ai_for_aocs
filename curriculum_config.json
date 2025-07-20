@@ -1,0 +1,72 @@
+[
+  {
+    "stage_index": 0,
+    "env_config": {
+      "start_epoch": "2020-05-01",
+      "stage": 1,
+      "max_duration":233,
+      "reward_weights": {
+        "orbital_match":0.0,
+        "alignment": 0.0,
+        "approach": 0.0,
+        "flyby": 0.0,
+        "energy": 0.7,
+        "distance": 0.65, 
+        "dv_penalty": 6.0,
+        "sun_penalty": 0.1,
+        "closing_rate": 0.0,
+        "final_reward": 0.0,
+        "max_dv_exceeded":0.0,
+        "true_anomaly":0.0
+      }
+    },
+    "training_iters": 0
+  },
+  {
+    "stage_index": 1,
+    "env_config": {
+      "start_epoch": "2020-05-01",
+      "stage": 2,
+       "max_duration":233,
+      "reward_weights": {
+        "orbital_match":0.0,
+        "alignment": 0.0,
+        "approach": 0.0,
+        "flyby": 0.0,
+        "energy": 0.45,
+        "distance": 0.85, 
+        "dv_penalty": 3.0,
+        "sun_penalty": 0.1,
+        "closing_rate": 0.0,
+        "final_reward": 0.0,
+        "max_dv_exceeded":0.0,
+        "true_anomaly":0.0
+      }
+    },
+    "training_iters": 0
+  },
+  {
+    "stage_index": 2,
+    "env_config": {
+      "start_epoch": "2020-05-01",      
+      "stage": 3,
+      "max_total_dv":70000,
+      "max_duration":233,
+      "reward_weights": {
+        "orbital_match":0.0,
+        "alignment": 0.0,
+        "approach": 0.0,
+        "flyby": 0.0,
+        "energy": 0.0,
+        "distance": 0.0, 
+        "dv_penalty": 1.5,
+        "sun_penalty": 0.1,
+        "closing_rate": 0.0,
+        "final_reward": 20.0,
+        "max_dv_exceeded":4.0,
+        "true_anomaly":0.0
+      }
+    },
+    "training_iters": 1000
+  }
+]
